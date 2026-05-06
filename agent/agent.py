@@ -2,8 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.agents import create_agent
 
 from agent.tools import search_phone, recommend_phones, compare_phones, list_new_releases
 
@@ -18,16 +17,16 @@ SYSTEM_PROMPT = """你是一位专业的手机选购顾问，熟悉国内市场�
 - 价格均为国内官网参考售价，实际购买时以商家为准
 - 如用户问题超出手机选购范围，礼貌地引导回手机话题"""
 
-_agent_executor: AgentExecutor | None = None
+_agent = None
 
 
-def get_agent() -> AgentExecutor:
-    global _agent_executor
-    if _agent_executor is not None:
-        return _agent_executor
+def get_agent():
+    global _agent
+    if _agent is not None:
+        return _agent
 
     llm = ChatOpenAI(
-        model="deepseek-v4-flash",
+        model="deepseek-chat",
         openai_api_base=os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com"),
         openai_api_key=os.environ["DEEPSEEK_API_KEY"],
         temperature=0.7,
@@ -35,19 +34,9 @@ def get_agent() -> AgentExecutor:
 
     tools = [search_phone, recommend_phones, compare_phones, list_new_releases]
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        MessagesPlaceholder("chat_history", optional=True),
-        ("human", "{input}"),
-        MessagesPlaceholder("agent_scratchpad"),
-    ])
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    _agent_executor = AgentExecutor(
-        agent=agent,
+    _agent = create_agent(
+        model=llm,
         tools=tools,
-        verbose=False,
-        max_iterations=5,
-        handle_parsing_errors=True,
+        system_prompt=SYSTEM_PROMPT,
     )
-    return _agent_executor
+    return _agent

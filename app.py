@@ -1,4 +1,12 @@
 import os
+import warnings
+
+# 必须在导入任何 HuggingFace 相关库之前设置
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+
+# Suppress transformers warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -81,21 +89,29 @@ if prompt:
         with st.spinner("正在为您查询..."):
             try:
                 agent = get_agent()
-                response = agent.invoke({
-                    "input": prompt,
-                    "chat_history": st.session_state.chat_history,
-                })
-                answer = response["output"]
+                # Build messages list with full history
+                messages = st.session_state.chat_history + [HumanMessage(content=prompt)]
+                response = agent.invoke({"messages": messages})
+
+                # Extract answer and preserve full response for reasoning_content
+                last_msg = response["messages"][-1]
+                answer = last_msg.content
+
+                # Store the full AI message for next round
+                st.session_state.chat_history.extend([
+                    HumanMessage(content=prompt),
+                    last_msg,  # Keep full message object with reasoning_content
+                ])
             except Exception as exc:
                 answer = f"抱歉，处理您的请求时出现了问题：{exc}"
+                st.session_state.chat_history.extend([
+                    HumanMessage(content=prompt),
+                    AIMessage(content=answer),
+                ])
         st.markdown(answer)
 
-    # Persist to session state
+    # Persist to session state (display only)
     st.session_state.messages.append({"role": "assistant", "content": answer})
-    st.session_state.chat_history.extend([
-        HumanMessage(content=prompt),
-        AIMessage(content=answer),
-    ])
 
     # Re-render so quick-button input also shows up cleanly
     if pending:

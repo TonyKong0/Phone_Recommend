@@ -1,5 +1,9 @@
 from pathlib import Path
 import json
+import os
+
+# 配置 HuggingFace 镜像
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma

@@ -13,6 +13,9 @@ __pycache__/
 # PyCharm
 .idea/
 
+# Claude Code
+.claude/
+
 # 系统文件
 .DS_Store
 Thumbs.db
