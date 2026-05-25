@@ -4,6 +4,7 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
+from agent.ecommerce.search import format_offers_markdown, search_live_products
 from rag.retriever import search
 
 BASE_DIR = Path(__file__).parent.parent
@@ -182,3 +183,23 @@ def list_new_releases() -> str:
             f"{p['release_date']}发布 — {p['summary']}"
         )
     return "\n".join(lines)
+
+
+@tool
+def search_live_phone_products(
+    query: str,
+    platforms: str = "jd,taobao,pdd",
+    max_results: int = 5,
+) -> str:
+    """实时搜索国内电商公开页面中的手机商品信息。
+
+    适用场景：用户询问最新价格、在哪里买、京东/淘宝/拼多多比价、在售商品、
+    现在哪个平台更便宜，或要求根据当前电商商品进行推荐。
+
+    Args:
+        query: 搜索关键词，如 "iPhone 16 256G"、"小米15"、"3000元 手机"
+        platforms: 逗号分隔的平台列表，支持 jd, taobao, pdd，默认全平台
+        max_results: 每个平台最多返回的商品数，范围 1-10
+    """
+    offers, notes = search_live_products(query, platforms=platforms, max_results=max_results)
+    return format_offers_markdown(offers, notes)
