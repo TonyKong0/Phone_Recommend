@@ -2,11 +2,22 @@ import json
 import re
 from pathlib import Path
 
-from langchain_core.tools import tool
+try:
+    from langchain_core.tools import tool
+except ImportError:  # pragma: no cover - keeps lightweight tests independent of LangChain
+    class _LocalTool:
+        def __init__(self, func):
+            self.func = func
+            self.name = func.__name__
+            self.description = func.__doc__ or ""
 
-from agent.ecommerce.search import format_offers_markdown, search_live_products
-from rag.retriever import search
+        def __call__(self, *args, **kwargs):
+            return self.func(*args, **kwargs)
 
+    def tool(func):
+        return _LocalTool(func)
+
+from agent.review_sources import format_review_context
 BASE_DIR = Path(__file__).parent.parent
 PHONES_PATH = str(BASE_DIR / "data" / "phones.json")
 
@@ -49,7 +60,7 @@ def _find_by_name(name: str, phones: list[dict]) -> dict | None:
         if name_norm in model_norm or model_norm in name_norm:
             return p
     # RAG fallback
-    results = search(name, top_k=1)
+    results = _search_phones(name, top_k=1)
     if results:
         return next((p for p in phones if p["id"] == results[0]["id"]), None)
     return None
@@ -74,7 +85,7 @@ def search_phone(query: str) -> str:
     ]
 
     if not matches:
-        results = search(query, top_k=3)
+        results = _search_phones(query, top_k=3)
         matched_ids = {r["id"] for r in results}
         matches = [p for p in phones if p["id"] in matched_ids]
 
@@ -107,7 +118,7 @@ def recommend_phones(requirements: str) -> str:
             filtered = phones  # No results in range, fall back to all
 
     # Semantic re-ranking via RAG
-    rag_results = search(requirements, top_k=15)
+    rag_results = _search_phones(requirements, top_k=15)
     rag_ids = [r["id"] for r in rag_results]
 
     seen: set[str] = set()
@@ -186,20 +197,23 @@ def list_new_releases() -> str:
 
 
 @tool
-def search_live_phone_products(
-    query: str,
-    platforms: str = "jd,taobao,pdd",
-    max_results: int = 5,
+def summarize_review_sources(
+    review_context: str,
 ) -> str:
-    """实时搜索国内电商公开页面中的手机商品信息。
+    """整理本次用户提供的公开评测资料，作为推荐时的引用证据。
 
-    适用场景：用户询问最新价格、在哪里买、京东/淘宝/拼多多比价、在售商品、
-    现在哪个平台更便宜，或要求根据当前电商商品进行推荐。
+    适用场景：用户要求结合侧边栏提供的评测链接、媒体评测、体验文章或其他
+    公开网页来辅助推荐手机。
 
     Args:
-        query: 搜索关键词，如 "iPhone 16 256G"、"小米15"、"3000元 手机"
-        platforms: 逗号分隔的平台列表，支持 jd, taobao, pdd，默认全平台
-        max_results: 每个平台最多返回的商品数，范围 1-10
+        review_context: 已抽取的本次评测资料 Markdown 摘要。
     """
-    offers, notes = search_live_products(query, platforms=platforms, max_results=max_results)
-    return format_offers_markdown(offers, notes)
+    if not review_context.strip():
+        return format_review_context([])
+    return review_context.strip()
+
+
+def _search_phones(query: str, top_k: int) -> list[dict]:
+    from rag.retriever import search
+
+    return search(query, top_k=top_k)

@@ -1,15 +1,13 @@
 import os
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_agent
 
 from agent.tools import (
     compare_phones,
     list_new_releases,
     recommend_phones,
-    search_live_phone_products,
     search_phone,
+    summarize_review_sources,
 )
 
 load_dotenv()
@@ -21,17 +19,31 @@ SYSTEM_PROMPT = """你是一位专业的手机选购顾问，熟悉国内市场�
 - 推荐时必须说明推荐理由，结合用户预算和使用场景
 - 对比时使用 Markdown 表格呈现关键参数差异，并在表格后给出明确的综合建议
 - 价格均为国内官网参考售价，实际购买时以商家为准
-- 当用户询问最新价格、现在哪里买、京东/淘宝/拼多多比价、在售商品或实时电商推荐时，必须调用实时商品搜索工具获取当前公开页面信息
-- 实时电商抓取可能因平台登录、验证码或风控失败；如果工具返回平台异常，要明确说明该平台本次未能获取公开数据
+- 当用户提供评测链接或要求结合评测资料时，必须使用本次评测参考资料来辅助判断
+- 引用评测观点时要标注来源标题或链接；不要复述整篇文章，只提炼与选购相关的优缺点、适用场景和争议点
+- 如果本次没有可用评测资料，要明确说明建议主要基于本地参数数据和常识判断
 - 如用户问题超出手机选购范围，礼貌地引导回手机话题"""
 
 _agent = None
+
+
+def get_tools():
+    return [
+        search_phone,
+        recommend_phones,
+        compare_phones,
+        list_new_releases,
+        summarize_review_sources,
+    ]
 
 
 def get_agent():
     global _agent
     if _agent is not None:
         return _agent
+
+    from langchain.agents import create_agent
+    from langchain_openai import ChatOpenAI
 
     llm = ChatOpenAI(
         model="deepseek-chat",
@@ -40,17 +52,9 @@ def get_agent():
         temperature=0.7,
     )
 
-    tools = [
-        search_phone,
-        recommend_phones,
-        compare_phones,
-        list_new_releases,
-        search_live_phone_products,
-    ]
-
     _agent = create_agent(
         model=llm,
-        tools=tools,
+        tools=get_tools(),
         system_prompt=SYSTEM_PROMPT,
     )
     return _agent

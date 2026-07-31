@@ -30,18 +30,61 @@ if not os.environ.get("DEEPSEEK_API_KEY"):
 
 # Lazy import after env check to avoid errors at import time
 from agent.agent import get_agent  # noqa: E402
+from agent.review_sources import build_review_context  # noqa: E402
 
 # ── Session state init ─────────────────────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages: list[dict] = []
 if "chat_history" not in st.session_state:
     st.session_state.chat_history: list = []
+if "review_sources" not in st.session_state:
+    st.session_state.review_sources = []
+if "review_context" not in st.session_state:
+    st.session_state.review_context = ""
+if "review_urls_loaded" not in st.session_state:
+    st.session_state.review_urls_loaded = ""
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("📱 手机选购助手")
     st.caption("AI 驱动的专业手机顾问")
     st.divider()
+
+    st.subheader("🧾 本次评测资料")
+    if st.session_state.pop("_clear_review_urls", False):
+        st.session_state["review_urls"] = ""
+    review_urls = st.text_area(
+        "评测链接",
+        key="review_urls",
+        height=120,
+        placeholder="每行一个公开评测链接，例如：https://example.com/review",
+        label_visibility="collapsed",
+    )
+    col_load, col_clear = st.columns(2)
+    with col_load:
+        load_reviews = st.button("读取评测", use_container_width=True)
+    with col_clear:
+        clear_reviews = st.button("清空评测", use_container_width=True)
+    if clear_reviews:
+        st.session_state.review_sources = []
+        st.session_state.review_context = ""
+        st.session_state.review_urls_loaded = ""
+        st.session_state["_clear_review_urls"] = True
+        st.rerun()
+    if load_reviews:
+        with st.spinner("正在读取评测资料..."):
+            sources, _errors, context = build_review_context(review_urls)
+        st.session_state.review_sources = sources
+        st.session_state.review_context = context
+        st.session_state.review_urls_loaded = review_urls
+    if st.session_state.review_sources:
+        ok_count = sum(1 for source in st.session_state.review_sources if source.ok)
+        st.caption(f"已读取 {ok_count}/{len(st.session_state.review_sources)} 个可用来源")
+        for source in st.session_state.review_sources:
+            if source.ok:
+                st.success(source.title or source.url, icon="✓")
+            else:
+                st.warning(f"{source.url}: {source.status}", icon="!")
 
     st.subheader("⚡ 快捷提问")
     quick_queries = {
@@ -58,6 +101,10 @@ with st.sidebar:
     if st.button("🗑️ 清空对话", use_container_width=True):
         st.session_state.messages = []
         st.session_state.chat_history = []
+        st.session_state.review_sources = []
+        st.session_state.review_context = ""
+        st.session_state.review_urls_loaded = ""
+        st.session_state["_clear_review_urls"] = True
         st.rerun()
 
     st.divider()
@@ -79,6 +126,15 @@ typed = st.chat_input("例如：推荐一款3000元以内拍照好的手机")
 prompt = typed or pending
 
 if prompt:
+    if st.session_state.get("review_urls", "").strip() and (
+        st.session_state.review_urls_loaded != st.session_state.review_urls
+    ):
+        with st.spinner("正在读取评测资料..."):
+            sources, _errors, context = build_review_context(st.session_state.review_urls)
+        st.session_state.review_sources = sources
+        st.session_state.review_context = context
+        st.session_state.review_urls_loaded = st.session_state.review_urls
+
     # Show user bubble
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -90,7 +146,15 @@ if prompt:
             try:
                 agent = get_agent()
                 # Build messages list with full history
-                messages = st.session_state.chat_history + [HumanMessage(content=prompt)]
+                agent_prompt = prompt
+                if st.session_state.review_context:
+                    agent_prompt = (
+                        f"{prompt}\n\n"
+                        "以下是用户在侧边栏提供的本次评测参考资料。"
+                        "请只把这些资料作为选购证据使用，并在引用观点时标注来源：\n\n"
+                        f"{st.session_state.review_context}"
+                    )
+                messages = st.session_state.chat_history + [HumanMessage(content=agent_prompt)]
                 response = agent.invoke({"messages": messages})
 
                 # Extract answer and preserve full response for reasoning_content
@@ -99,7 +163,7 @@ if prompt:
 
                 # Store the full AI message for next round
                 st.session_state.chat_history.extend([
-                    HumanMessage(content=prompt),
+                    HumanMessage(content=agent_prompt),
                     last_msg,  # Keep full message object with reasoning_content
                 ])
             except Exception as exc:

@@ -21,9 +21,8 @@ __pycache__/
 
 # Pytest cache
 .pytest_cache/
-
-# Ecommerce runtime cache
-data/ecommerce_cache.json
+.pytest-tmp/
+.codex-pytest-tmp/
 
 # 系统文件
 .DS_Store
